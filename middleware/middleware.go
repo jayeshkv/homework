@@ -1,10 +1,14 @@
 package main
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"net/http/httptest"
+	"sort"
 	"strconv"
 )
 
@@ -16,6 +20,41 @@ const (
 func ChecksumMiddleware(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// your code goes here ...
+		//https://groups.google.com/forum/#!topic/golang-nuts/Jk785WB7F8I
+		recorder := httptest.NewRecorder()
+		h.ServeHTTP(recorder, r)
+
+		cod := recorder.Code
+		junkString := strconv.Itoa(cod) //str conversion
+		junkString += crlf
+
+		keys := []string{}
+		headerJunk := ""
+
+		for k := range recorder.Header() {
+			keys = append(keys, k) //extracting headers
+		} //endfor
+
+		sort.Strings(keys)
+		for _, vals := range keys {
+			junkString += vals + ": " + recorder.Header().Get(vals) + crlf
+			if vals != keys[len(keys)-1] { //compares with last element
+				headerJunk += vals + ";"
+			} else {
+				headerJunk += vals + crlf + crlf
+			}
+		} //end for
+
+		finString := []byte(junkString + "X-Checksum-Headers" + colonspace + headerJunk + recorder.Body.String()) //final canonical string
+		// converting finString to Sha1
+		sha := sha1.New()
+		sha.Write(finString)
+		bs := sha.Sum(nil)
+		//converting to hex
+		hexEncoded := hex.EncodeToString([]byte(bs))
+		w.Header().Set("X-Checksum", hexEncoded)
+		h.ServeHTTP(w, r)
+
 	})
 }
 
